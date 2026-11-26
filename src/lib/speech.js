@@ -47,5 +47,23 @@ export function playSentence(s, { slow = false } = {}) {
   });
 }
 
+// A word: partner's recording when there is one, otherwise the iPhone voice.
+export async function playWordAudio(word, slow = false) {
+  if (word.hasAudio && !slow) {
+    try {
+      const { getAudio } = await import('./sync.js');
+      const a = await getAudio(word.id);
+      if (a?.data) {
+        stop();
+        const el = new Audio(a.data);
+        current = el;
+        await el.play();
+        return;
+      }
+    } catch {}
+  }
+  return speak(word.hanzi || word.id, slow ? { rate: 0.55 } : {});
+}
+
 // iOS loads voices asynchronously
 window.speechSynthesis?.addEventListener?.('voiceschanged', () => {});

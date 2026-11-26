@@ -20,6 +20,10 @@ const DEFAULTS = {
   sessionSize: 20,
   newPerDay: 15,
   showPinyin: true,
+  learnBatch: 5,
+  learnWriting: true,
+  writingStrictness: 'relaxed',
+  sync: null, // { config, spaceId, name, role: 'learner' | 'helper' }
 };
 let settings = { ...DEFAULTS };
 const sl = new Set();

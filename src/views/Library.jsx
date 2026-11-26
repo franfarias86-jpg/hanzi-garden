@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
-import { useWords, openWord, openChar } from '../lib/store.js';
+import { useWords, useSettings, openWord, openChar } from '../lib/store.js';
 import { charactersOf } from '../lib/level.js';
 import { wordStrength } from '../lib/srs.js';
 import { loadHsk, HSK_LABEL, hasHan, segment, searchDict, draftWord } from '../lib/data.js';
@@ -106,6 +106,9 @@ export function Library() {
 
 function AddWords({ onBack }) {
   const words = useWords();
+  const settings = useSettings();
+  const by = settings.sync?.name || '';
+  const [note, setNote] = useState('');
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
   const [cands, setCands] = useState(null); // segmented words from pasted Chinese
@@ -141,14 +144,15 @@ function AddWords({ onBack }) {
   }, [q]);
 
   const addPicked = async () => {
-    const list = cands.filter((d) => picked.has(d.hanzi) && !words.has(d.hanzi)).map((d) => makeWord(d));
+    const list = cands.filter((d) => picked.has(d.hanzi) && !words.has(d.hanzi)).map((d) => makeWord({ ...d, note: note.trim(), addedBy: by }));
     await putWords(list);
     toast(`Added ${list.length} word${list.length === 1 ? '' : 's'}`);
     setQ('');
+    setNote('');
   };
   const addOne = async (word) => {
     const d = await draftWord(word);
-    await putWords([makeWord(d)]);
+    await putWords([makeWord({ ...d, note: note.trim(), addedBy: by })]);
     toast(`Added ${word}`);
   };
 
@@ -161,7 +165,10 @@ function AddWords({ onBack }) {
       <div class="search">
         <textarea class="field zh" rows={2} autoFocus placeholder="Type or paste Chinese (one or many words, or a whole sentence), pinyin, or English" value={q} onInput={(e) => setQ(e.target.value)} />
       </div>
-      <p class="note">Tip: switch your iPhone keyboard to Chinese Pinyin or Handwriting to type characters. Definitions come from CC-CEDICT; you can edit them later.</p>
+      {(cands?.length > 0 || results?.length > 0) && (
+        <input class="field" style={{ marginBottom: 8, fontSize: 15 }} value={note} onInput={(e) => setNote(e.target.value)} placeholder="Note or context (optional): where you heard it, a mnemonic…" />
+      )}
+      <p class="note">New words go to <b>Review → Learn new words</b> first. Tip: switch your iPhone keyboard to Chinese Pinyin or Handwriting to type characters. Definitions come from CC-CEDICT; you can edit them later.</p>
       {busy && <div class="empty"><Spinner /></div>}
 
       {cands && cands.length > 0 && (

@@ -33,8 +33,11 @@ export function getWordsNow() {
   return words;
 }
 
-export function makeWord({ hanzi, pinyin = '', defs = [], examples = [], source = 'manual', note = '' }) {
+export function makeWord({ hanzi, pinyin = '', defs = [], examples = [], source = 'manual', note = '', addedBy = '' }) {
   return {
+    learned: false,
+    addedBy,
+    updatedAt: Date.now(),
     id: hanzi,
     hanzi,
     pinyin,
@@ -48,31 +51,36 @@ export function makeWord({ hanzi, pinyin = '', defs = [], examples = [], source 
   };
 }
 
-export async function putWord(word) {
-  await loadWords();
-  const db = await dbp;
-  await db.put('words', word);
-  words = new Map(words).set(word.id, word);
-  emit();
-  return word;
+// Sync layer registers here to hear about local edits (remote edits pass fromRemote and are not echoed back).
+let syncHook = null;
+export function setSyncHook(fn) {
+  syncHook = fn;
 }
-export async function putWords(list) {
+
+export async function putWord(word, opts = {}) {
+  return (await putWords([word], opts))[0];
+}
+export async function putWords(list, { fromRemote = false } = {}) {
   await loadWords();
   const db = await dbp;
+  if (!fromRemote) list = list.map((w) => ({ ...w, updatedAt: Date.now() }));
   const tx = db.transaction('words', 'readwrite');
   for (const w of list) tx.store.put(w);
   await tx.done;
   words = new Map(words);
   for (const w of list) words.set(w.id, w);
   emit();
+  if (!fromRemote) syncHook?.({ put: list });
+  return list;
 }
-export async function deleteWord(id) {
+export async function deleteWord(id, { fromRemote = false } = {}) {
   await loadWords();
   const db = await dbp;
   await db.delete('words', id);
   words = new Map(words);
   words.delete(id);
   emit();
+  if (!fromRemote) syncHook?.({ remove: [id] });
 }
 
 // ---------- stories ----------

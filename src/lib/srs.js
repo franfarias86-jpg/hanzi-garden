@@ -56,3 +56,30 @@ export function nextDueLabel(s, now = Date.now()) {
   if (d < DAY) return `${Math.round(d / 3600000)} h`;
   return `${Math.round(d / DAY)} d`;
 }
+
+// ---------- learning lifecycle ----------
+// A word starts "new": it has to go through Learn mode before it enters reviews.
+// Older words (from before Learn mode existed) that were already reviewed count as learned.
+export function isNewWord(w) {
+  if (w.learned !== undefined) return !w.learned;
+  return !(w.srs?.meaning?.reps > 0);
+}
+
+const jitter = (a, b) => a + Math.random() * (b - a);
+
+// Called when a word finishes Learn mode. Struggling words come back sooner.
+export function graduate(w, { fails = 0 } = {}, now = Date.now()) {
+  const first = fails >= 3 ? 0.4 : fails >= 1 ? 0.8 : 1;
+  const mk = (days) => ({ ...newSrs(), reps: 1, interval: days, due: now + days * DAY, last: now });
+  return { ...w, learned: true, learnedAt: now, srs: { meaning: mk(first), listening: mk(first + 0.5), writing: mk(first * 2) } };
+}
+
+// For words the learner already knows (quick check). Spread due dates so they don't arrive all at once.
+export function seedKnown(w, how, now = Date.now()) {
+  const range = how === 'well' ? [30, 120] : [5, 20];
+  const mk = () => {
+    const interval = jitter(...range);
+    return { ...newSrs(), reps: how === 'well' ? 4 : 2, ease: how === 'well' ? 2.7 : 2.5, interval, due: now + interval * DAY, last: now };
+  };
+  return { ...w, learned: true, learnedAt: now, known: how, srs: { meaning: mk(), listening: mk(), writing: mk() } };
+}

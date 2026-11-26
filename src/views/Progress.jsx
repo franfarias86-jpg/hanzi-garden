@@ -6,12 +6,14 @@ import { putWords, makeWord } from '../lib/db.js';
 import { draftWord } from '../lib/data.js';
 import { toast } from '../components/ui.jsx';
 import { IconPlus } from '../components/icons.jsx';
+import { KnownCheck } from './KnownCheck.jsx';
 
 export function Progress() {
   const words = useWords();
   const [est, setEst] = useState(null);
   const [stats, setStats] = useState(null);
   const [next, setNext] = useState([]);
+  const [checking, setChecking] = useState(false);
   useEffect(() => {
     if (!words) return;
     estimateLevel(words).then(setEst);
@@ -27,6 +29,7 @@ export function Progress() {
     });
   }, [words]);
   if (!words || !est) return null;
+  if (checking) return <KnownCheck onBack={() => setChecking(false)} />;
   const chars = charactersOf(words).size;
   const add = async (w) => {
     await putWords([makeWord(await draftWord(w))]);
@@ -47,6 +50,11 @@ export function Progress() {
         )}
         <p class="note" style={{ marginBottom: 0 }}>You reach a level when you know at least 60% of all HSK 3.1 words up to it. Words you've reviewed count more than words you just added.</p>
       </div>
+
+      <button class="card mode" style={{ width: '100%', marginTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }} onClick={() => setChecking(true)}>
+        <span><b>Quick check: words I already know</b><span class="sub">Flip through HSK words and tap “familiar” or “know it well” — the fastest way to bring your library up to date</span></span>
+        <span class="n">→</span>
+      </button>
 
       <div class="stats" style={{ marginTop: 12 }}>
         <div class="card stat"><b>{words.size}</b><span>words</span></div>

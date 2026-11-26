@@ -5,8 +5,9 @@ import { IconSound, IconStar, IconTrash, IconPen, IconSparkle, IconPlus, IconHig
 import { useWords, useSettings, closeSheet, openChar, openWord } from '../lib/store.js';
 import { putWord, deleteWord, makeWord } from '../lib/db.js';
 import { draftWord, examplesFor, lookup, HSK_LABEL, isHan, loadHsk, loadDict } from '../lib/data.js';
-import { speak, playSentence } from '../lib/speech.js';
-import { SKILLS, SKILL_LABEL, nextDueLabel } from '../lib/srs.js';
+import { speak, playSentence, playWordAudio, stop } from '../lib/speech.js';
+import { saveAudio, syncActive } from '../lib/sync.js';
+import { SKILLS, SKILL_LABEL, nextDueLabel, isNewWord } from '../lib/srs.js';
 import { generateExamples, friendlyError } from '../lib/claude.js';
 import { estimateLevel } from '../lib/level.js';
 
@@ -77,7 +78,7 @@ export function WordSheet({ word: id, context }) {
     const defs = draft.defs.length ? draft.defs : context?.gloss ? [context.gloss] : [];
     if (context?.gloss && draft.defs.length && !draft.defs.some((d) => d.toLowerCase().includes(context.gloss.toLowerCase())))
       defs.unshift(context.gloss);
-    await putWord(makeWord({ hanzi: id, pinyin: context?.pinyin || draft.pinyin, defs, examples: extra, source: context?.source || 'manual' }));
+    await putWord(makeWord({ hanzi: id, pinyin: context?.pinyin || draft.pinyin, defs, examples: extra, source: context?.source || 'manual', addedBy: settings.sync?.name || '' }));
     toast(`Added ${id} to your library`);
   };
 
@@ -112,16 +113,20 @@ export function WordSheet({ word: id, context }) {
   return (
     <Sheet onClose={closeSheet}>
       <div class="word-hero">
-        <div class="hz">{id}</div>
+        <div class={`hz ${[...id].length > 2 ? 'long' : ''}`}>{id}</div>
         <div style={{ flex: 1 }}>
           <div class="py">{w.pinyin}</div>
           <div class="chips" style={{ marginTop: 4 }}>
             {hsk && <span class="chip muted">{HSK_LABEL(hsk)}</span>}
-            {saved ? <span class="chip good">In library</span> : <span class="chip new">New word</span>}
+            {saved ? (isNewWord(saved) ? <span class="chip new">To learn</span> : <span class="chip good">In library</span>) : <span class="chip new">Not saved</span>}
+            {saved?.addedBy && <span class="chip muted">by {saved.addedBy}</span>}
+            {saved?.hasAudio && <span class="chip muted">🎙 {saved.audioBy}</span>}
           </div>
         </div>
-        <button class="icon-btn" onClick={() => speak(id)} aria-label="Pronounce"><IconSound /></button>
+        <button class="icon-btn" onClick={() => (saved ? playWordAudio(saved) : speak(id))} aria-label="Pronounce"><IconSound /></button>
       </div>
+
+      {saved && syncActive() && <Recorder word={saved} />}
 
       {context?.gloss && (
         <p class="sub" style={{ margin: '4px 0 0' }}>
@@ -179,7 +184,7 @@ export function WordSheet({ word: id, context }) {
       </div>
       {practice !== null ? (
         <div style={{ marginTop: 14 }}>
-          <StrokeQuiz char={chars[practice]} size={240} showOutline onDone={() => setTimeout(() => setPractice((p) => (p + 1 < chars.length ? p + 1 : null)), 700)} />
+          <StrokeQuiz char={chars[practice]} size={240} guide onDone={() => setTimeout(() => setPractice((p) => (p + 1 < chars.length ? p + 1 : null)), 700)} />
           <p class="note" style={{ textAlign: 'center' }}>Trace {chars[practice]} ({practice + 1}/{chars.length}). The grey outline is shown while practising.</p>
         </div>
       ) : (
@@ -239,7 +244,7 @@ export function CharSheet({ char }) {
       <div style={{ display: 'flex', justifyContent: 'center', margin: '10px 0' }}>
         {quiz ? (
           <div>
-            <StrokeQuiz key={round} char={char} size={240} showOutline={round === 0} onDone={() => {}} />
+            <StrokeQuiz key={round} char={char} size={240} guide={round === 0} onDone={() => {}} />
             <div class="between" style={{ marginTop: 8 }}>
               <button class="btn plain small" onClick={() => setRound((r) => r + 1)}>Again {round > 0 ? '' : '(no outline)'}</button>
               <button class="btn plain small" onClick={() => setQuiz(false)}>Done</button>
@@ -288,5 +293,46 @@ export function CharSheet({ char }) {
         </>
       )}
     </Sheet>
+  );
+}
+
+// Record a pronunciation (e.g. by a native-speaker partner); shared through the shared space.
+function Recorder({ word }) {
+  const [rec, setRec] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const start = async () => {
+    try {
+      stop();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const type = ['audio/mp4', 'audio/webm', 'audio/ogg'].find((t) => window.MediaRecorder?.isTypeSupported?.(t)) || '';
+      const mr = new MediaRecorder(stream, type ? { mimeType: type, audioBitsPerSecond: 48000 } : {});
+      const chunks = [];
+      mr.ondataavailable = (e) => chunks.push(e.data);
+      mr.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        setBusy(true);
+        try {
+          await saveAudio(word, new Blob(chunks, { type: mr.mimeType || type }));
+          toast('Recording saved');
+        } catch (e) {
+          toast(e.message);
+        }
+        setBusy(false);
+      };
+      mr.start();
+      setRec(mr);
+      setTimeout(() => mr.state === 'recording' && mr.stop(), 15000);
+    } catch (e) {
+      toast('Microphone not available: ' + e.message);
+    }
+  };
+  const end = () => {
+    rec?.stop();
+    setRec(null);
+  };
+  return (
+    <button class={`btn small ${rec ? '' : 'plain'}`} style={{ marginTop: 10 }} disabled={busy} onClick={rec ? end : start}>
+      {busy ? <Spinner /> : rec ? '■ Stop recording' : `🎙 ${word.hasAudio ? 'Re-record' : 'Record'} my voice`}
+    </button>
   );
 }
